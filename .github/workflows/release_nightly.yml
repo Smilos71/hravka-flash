@@ -1,109 +1,39 @@
-name: Release Nightly
+name: Hravka Build
 
 on:
-  workflow_dispatch: # Ponecháno pro tvoje ruční spouštění tlačítkem
-
-env:
-  RELEASE_SCRIPT: ./.github/scripts/release.py
+  workflow_dispatch:
 
 jobs:
-  create-nightly-release:
-    name: Create Nightly Release
-    runs-on: ubuntu-24.04
-    outputs:
-      is_active: "true"
-      date: ${{ steps.current_time_underscores.outputs.formattedTime }}
-      tag_name: ${{ steps.commit.outputs.tag_name }}
-      package_prefix: ${{ steps.create_release.outputs.package_prefix }}
-      version4: ${{ steps.version.outputs.version4 }}
+  build-hravka:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Install cargo-edit
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: cargo-edit
-          version: '^0.13'
-
-      - name: Install cargo-get
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: cargo-get
-          version: '^1.0'
-
-      - name: Bump version
-        id: version
-        run: |
-          $RELEASE_SCRIPT bump
-          shopt -s globstar
-          sed -i -e '$a\' **/package.json
-
-      - name: Create release commit
-        id: commit
-        run: |
-          $RELEASE_SCRIPT commit
-          $RELEASE_SCRIPT tag-and-push
-
-      - name: Get current time
-        uses: josStorer/get-current-time@v2.1.2
-        id: current_time_underscores
-        with:
-          format: YYYY_MM_DD
-
-      - name: Create release
-        id: create_release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $RELEASE_SCRIPT release
-
-  build-web:
-    name: Build Hravka Web
-    needs: create-nightly-release
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Clone repo
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.create-nightly-release.outputs.tag_name }}
+      - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           targets: wasm32-unknown-unknown
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
 
       - name: Install wasm-bindgen
         run: cargo install wasm-bindgen-cli --version 0.2.108
 
-      - name: Install node packages
+      - name: Install JS stuff
         working-directory: web
         run: npm ci
 
-      - name: Build Hravka Engine
+      - name: Build My Hravka
+        working-directory: web
+        run: npm run build:selfhosted
         env:
           CFG_RELEASE_CHANNEL: nightly
-          VERSION4: ${{ needs.create-nightly-release.outputs.version4 }}
-          WASM_SOURCE: cargo_and_store
-        working-directory: web
-        run: npm run build:dual-wasm-repro
 
-      - name: Package for CDN
-        run: |
-          cd web/packages/selfhosted/dist
-          zip -r "${{ needs.create-nightly-release.outputs.package_prefix }}-hravka-web.zip" .
-
-      - name: Upload to Release
-        run: |
-          tag_name="${{ needs.create-nightly-release.outputs.tag_name }}"
-          package_file="web/packages/selfhosted/dist/${{ needs.create-nightly-release.outputs.package_prefix }}-hravka-web.zip"
-          gh release upload "$tag_name" "$package_file"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload My Files
+        uses: actions/upload-artifact@v4
+        with:
+          name: hravka-files
+          path: web/packages/selfhosted/dist/
